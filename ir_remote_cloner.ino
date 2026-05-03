@@ -1,16 +1,35 @@
-#include "globals.h"
-#include "definitions.h"
-#include "display_utils.h"
-#include "input_utils.h"
-#include "menu_handler.h"
-#include "main.h"
-#include "remotes.h"
-#include "saved_remotes.h"
-#include "ir_handler.h"
-#include "capture_ir.h"
-#include "create_remote.h"
-#include "storage_handler.h"
-#include "splash_sprite.h"
+// --- CORE --- 
+#include "src/core/definitions.h"
+#include "src/core/globals.h"
+#include "src/core/main.h"
+#include "src/core/splash_sprite.h"
+
+// --- HANDlERS ---
+#include "src/handlers/ir_handler.h"
+#include "src/handlers/menu_handler.h"
+
+
+// --- UTILS --- 
+#include "src/utils/display_utils.h"
+#include "src/utils/storage_utils.h"
+#include "src/utils/input_utils.h"
+
+// --- VIEWS --- 
+#include "src/views/capture_ir.h"
+#include "src/views/captured_signal.h"
+#include "src/views/create_remote.h"
+#include "src/views/remotes.h"
+#include "src/views/saved_remotes.h"
+#include "src/views/splash.h"
+#include "src/views/view_remote.h"
+
+
+// --- LIBRARIES ---
+#include <LittleFS.h>
+#include <SPI.h>
+#include <SD.h>
+#include <string.h>
+
 
 void setup() {
     auto cfg = M5.config();
@@ -28,9 +47,11 @@ void setup() {
     SPI.begin(SD_SPI_SCK_PIN, SD_SPI_MISO_PIN, SD_SPI_MOSI_PIN, SD_SPI_CS_PIN);
 
     if (!SD.begin(SD_SPI_CS_PIN)) {
-        Serial.println("SD Card Mount Failed");
+    Serial.println("SD Card Mount Failed");
+    sdCardAvailable = false;
     } else {
         Serial.println("SD Card ready");
+        sdCardAvailable = true;
     }
     menuRedraw = true; 
 }
@@ -38,55 +59,57 @@ void setup() {
 void loop() {
     M5Cardputer.update();
     AppState lastState = currentState;
-    if (currentState == APP_SPLASH && M5Cardputer.Keyboard.isChange()) {
-      if (M5Cardputer.Keyboard.isPressed() > 0) {
-        currentState = MAIN_MENU_MODE;
-      }
-    }
+    
     switch (currentState) {
-        case APP_SPLASH:
-            runSplashView();
+        case AppState::Splash:
+            renderSplashView();
         break;
-        case MAIN_MENU_MODE:
-            runMainMenuView();
-        break;
-
-        case REMOTE_MODE:
-            runRemotesMenuView();
+        case AppState::MainMenu:
+            renderMainMenuView();
         break;
 
-        case QUICK_CAPTURE_MODE:
-            runQuickCaptureView();
+        case AppState::Remotes:
+            renderRemotesMenuView();
         break;
 
-        case CREATE_REMOTE_MODE:
-            runCreateRemoteView();
+        case AppState::QuickCapture:
+            renderQuickCaptureView();
+        break;
+
+        case AppState::CreateRemote:
+            renderCreateRemoteView();
         break;
         
-        case SAVED_REMOTES_MODE:
-            runSavedRemotesView();
+        case AppState::SavedRemotes:
+            renderSavedRemotesView();
         break;
 
-        case LIST_LITTLE_FS_REMOTES:
-            listSavedRemotesView();
+        case AppState::ListLittleFSRemotes:
+             listSavedRemotesView(LittleFS);
         break;
         
-        case LIST_SD_CARD_REMOTES:
-            listSavedRemotesView();
+        case AppState::ListSDCardRemotes:
+             listSavedRemotesView(SD);
         break;
 
+        case AppState::ViewRemoteSD:
+            renderRemoteView(SD, selectedRemotePath.c_str());
+        break;
 
-        case SPAM_MODE:
+        case AppState::ViewRemoteLittleFS:
+            renderRemoteView(LittleFS, selectedRemotePath.c_str());
+        break;
+
+        case AppState::SpamSignals:
             runPlaceholderView("SPAM SIGNALS");
         break;
 
-        case SETTINGS_MODE:
-        
+        case AppState::Settings:
             runPlaceholderView("SETTINGS/SAVED");
         break;
             
         default:
-            runMainMenuView();
+            renderMainMenuView();
         break;
     }
 
@@ -99,8 +122,8 @@ void loop() {
 //placeholder view - remove when complete
 
 void runPlaceholderView(String featureName) {
-    if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACK)) {
-        currentState = MAIN_MENU_MODE;
+    if (M5Cardputer.Keyboard.isKeyPressed(KEY_ESC)) {
+        currentState = AppState::MainMenu;
         menuRedraw = true;
         return;
     }
